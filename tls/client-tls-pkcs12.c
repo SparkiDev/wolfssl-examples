@@ -234,7 +234,11 @@ int main(int argc, char** argv)
     /* Get a message for the server from stdin */
     printf("Message for server: ");
     memset(buff, 0, sizeof(buff));
-    fgets(buff, sizeof(buff), stdin);
+    if (fgets(buff, sizeof(buff), stdin) == NULL) {
+        fprintf(stderr, "ERROR: failed to read string\n");
+        ret = -1;
+        goto client_example_end;
+    }
     len = strnlen(buff, sizeof(buff));
 
     /* Send the message to the server */
