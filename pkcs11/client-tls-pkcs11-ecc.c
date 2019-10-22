@@ -1,4 +1,4 @@
-/* server-tls.c
+/* client-tls-ecdhe.c
  *
  * Copyright (C) 2006-2015 wolfSSL Inc.
  *
@@ -37,23 +37,23 @@
 
 #define DEFAULT_PORT 11111
 
-#define CERT_FILE    "../certs/server-ecc.pem"
-#define PRIV_KEY_ID  {0x00, 0x02}
+#define CERT_FILE "../certs/ca-ecc-cert.pem"
 
-#ifndef WOLFCRYPT_ONLY
-int server_tls(int devId, Pkcs11Token* token)
+#define ECC_FILE    "../certs/client-ecc-cert.pem"
+#define PRIV_KEY_ID {0x00, 0x04}
+#define CIPHER_LIST "ECDHE-ECDSA-CHACHA20-POLY1305"
+
+
+
+int client_tls(int devId, Pkcs11Token* token, const char* ipAddr)
 {
     int                sockfd;
-    int                connd;
     struct sockaddr_in servAddr;
-    struct sockaddr_in clientAddr;
-    socklen_t          size = sizeof(clientAddr);
     char               buff[256];
+    char*              p;
     size_t             len;
-    int                shutdown = 0;
     int                ret;
     unsigned char      privKeyId[] = PRIV_KEY_ID;
-    const char*        reply = "I hear ya fa shizzle!\n";
 
     /* declare wolfSSL objects */
     WOLFSSL_CTX* ctx;
@@ -77,7 +77,7 @@ int server_tls(int devId, Pkcs11Token* token)
 
 
     /* Create and initialize WOLFSSL_CTX */
-    if ((ctx = wolfSSL_CTX_new(wolfTLSv1_2_server_method())) == NULL) {
+    if ((ctx = wolfSSL_CTX_new(wolfTLSv1_2_client_method())) == NULL) {
         fprintf(stderr, "ERROR: failed to create WOLFSSL_CTX\n");
         return -1;
     }
@@ -87,18 +87,31 @@ int server_tls(int devId, Pkcs11Token* token)
         return -1;
     }
 
-    /* Load server certificates into WOLFSSL_CTX */
-    if (wolfSSL_CTX_use_certificate_file(ctx, CERT_FILE, SSL_FILETYPE_PEM)
+    /* Load client certificates into WOLFSSL_CTX */
+    if (wolfSSL_CTX_load_verify_locations(ctx, CERT_FILE, NULL)
         != SSL_SUCCESS) {
         fprintf(stderr, "ERROR: failed to load %s, please check the file.\n",
                 CERT_FILE);
         return -1;
     }
 
-    /* Load server key into WOLFSSL_CTX */
+    /* Load client ecc certificates into WOLFSSL_CTX */
+    if (wolfSSL_CTX_use_certificate_chain_file(ctx, ECC_FILE) != SSL_SUCCESS) {
+        fprintf(stderr, "ERROR: failed to load %s, please check the file.\n",
+                ECC_FILE);
+        return -1;
+    }
+
+    /* Load client key into WOLFSSL_CTX */
     if (wolfSSL_CTX_use_PrivateKey_id(ctx, privKeyId, sizeof(privKeyId), devId,
             256/8) != SSL_SUCCESS) {
         fprintf(stderr, "ERROR: failed to set id.\n");
+        return -1;
+    }
+
+    /* Set cipher list */
+    if (wolfSSL_CTX_set_cipher_list(ctx, CIPHER_LIST) != SSL_SUCCESS) {
+        fprintf(stderr, "ERROR: failed to set cipher list\n");
         return -1;
     }
 
@@ -108,118 +121,90 @@ int server_tls(int devId, Pkcs11Token* token)
     memset(&servAddr, 0, sizeof(servAddr));
 
     /* Fill in the server address */
-    servAddr.sin_family      = AF_INET;             /* using IPv4      */
-    servAddr.sin_port        = htons(DEFAULT_PORT); /* on DEFAULT_PORT */
-    servAddr.sin_addr.s_addr = INADDR_ANY;          /* from anywhere   */
+    servAddr.sin_family = AF_INET;             /* using IPv4      */
+    servAddr.sin_port   = htons(DEFAULT_PORT); /* on DEFAULT_PORT */
 
-
-
-    /* Bind the server socket to our port */
-    if (bind(sockfd, (struct sockaddr*)&servAddr, sizeof(servAddr)) == -1) {
-        fprintf(stderr, "ERROR: failed to bind\n");
-        return -1;
-    }
-
-    /* Listen for a new connection, allow 5 pending connections */
-    if (listen(sockfd, 5) == -1) {
-        fprintf(stderr, "ERROR: failed to listen\n");
+    /* Get the server IPv4 address from the command line call */
+    if (inet_pton(AF_INET, ipAddr, &servAddr.sin_addr) != 1) {
+        fprintf(stderr, "ERROR: invalid address\n");
         return -1;
     }
 
 
 
-    /* Continue to accept clients until shutdown is issued */
-    while (!shutdown) {
-        printf("Waiting for a connection...\n");
-
-        /* Accept client connections */
-        if ((connd = accept(sockfd, (struct sockaddr*)&clientAddr, &size))
-            == -1) {
-            fprintf(stderr, "ERROR: failed to accept the connection\n\n");
-            return -1;
-        }
-
-        /* Create a WOLFSSL object */
-        if ((ret = wc_Pkcs11Token_Open(token, 1)) != 0) {
-            fprintf(stderr, "ERROR: failed to open session on token (%d)\n",
-                ret);
-            return -1;
-        }
-
-        /* Create a WOLFSSL object */
-        if ((ssl = wolfSSL_new(ctx)) == NULL) {
-            fprintf(stderr, "ERROR: failed to create WOLFSSL object\n");
-            return -1;
-        }
-
-        /* Attach wolfSSL to the socket */
-        wolfSSL_set_fd(ssl, connd);
-
-        /* Establish TLS connection */
-        ret = wolfSSL_accept(ssl);
-        if (ret != SSL_SUCCESS) {
-            fprintf(stderr, "wolfSSL_accept error = %d\n",
-                wolfSSL_get_error(ssl, ret));
-            return -1;
-        }
-
-
-        printf("Client connected successfully\n");
-
-
-
-        /* Read the client data into our buff array */
-        memset(buff, 0, sizeof(buff));
-        if (wolfSSL_read(ssl, buff, sizeof(buff)-1) == -1) {
-            fprintf(stderr, "ERROR: failed to read\n");
-            return -1;
-        }
-
-        /* Print to stdout any data the client sends */
-        printf("Client: %s\n", buff);
-
-        /* Check for server shutdown command */
-        if (strncmp(buff, "shutdown", 8) == 0) {
-            printf("Shutdown command issued!\n");
-            shutdown = 1;
-        }
-
-
-
-        /* Write our reply into buff */
-        memset(buff, 0, sizeof(buff));
-        memcpy(buff, reply, strlen(reply));
-        len = strnlen(buff, sizeof(buff));
-
-        /* Reply back to the client */
-        if (wolfSSL_write(ssl, buff, len) != len) {
-            fprintf(stderr, "ERROR: failed to write\n");
-            return -1;
-        }
-
-
-
-        /* Cleanup after this connection */
-        wolfSSL_free(ssl);      /* Free the wolfSSL object              */
-        wc_Pkcs11Token_Close(token);
-        close(connd);           /* Close the connection to the client   */
+    /* Connect to the server */
+    if (connect(sockfd, (struct sockaddr*) &servAddr, sizeof(servAddr))
+        == -1) {
+        fprintf(stderr, "ERROR: failed to connect\n");
+        return -1;
     }
 
-    printf("Shutdown complete\n");
+
+    /* Create a WOLFSSL object */
+    if ((ret = wc_Pkcs11Token_Open(token, 1)) != 0) {
+        fprintf(stderr, "ERROR: failed to open session on token (%d)\n", ret);
+        return -1;
+    }
+
+
+
+    /* Create a WOLFSSL object */
+    if ((ssl = wolfSSL_new(ctx)) == NULL) {
+        fprintf(stderr, "ERROR: failed to create WOLFSSL object\n");
+        return -1;
+    }
+
+    /* Attach wolfSSL to the socket */
+    wolfSSL_set_fd(ssl, sockfd);
+
+    /* Connect to wolfSSL on the server side */
+    if (wolfSSL_connect(ssl) != SSL_SUCCESS) {
+        fprintf(stderr, "ERROR: failed to connect to wolfSSL\n");
+        return -1;
+    }
+
+
+
+    /* Get a message for the server from stdin */
+    printf("Message for server: ");
+    memset(buff, 0, sizeof(buff));
+    p = fgets(buff, sizeof(buff), stdin);
+    (void)p;
+    len = strnlen(buff, sizeof(buff));
+
+    /* Send the message to the server */
+    if (wolfSSL_write(ssl, buff, len) != len) {
+        fprintf(stderr, "ERROR: failed to write\n");
+        return -1;
+    }
+
+
+
+    /* Read the server data into our buff array */
+    memset(buff, 0, sizeof(buff));
+    if (wolfSSL_read(ssl, buff, sizeof(buff)-1) == -1) {
+        fprintf(stderr, "ERROR: failed to read\n");
+        return -1;
+    }
+
+    /* Print to stdout any data the server sends */
+    printf("Server: %s\n", buff);
 
 
 
     /* Cleanup and return */
+    wolfSSL_free(ssl);      /* Free the wolfSSL object                  */
+    wc_Pkcs11Token_Close(token);
     wolfSSL_CTX_free(ctx);  /* Free the wolfSSL context object          */
     wolfSSL_Cleanup();      /* Cleanup the wolfSSL environment          */
-    close(sockfd);          /* Close the socket listening for clients   */
+    close(sockfd);          /* Close the connection to the server       */
     return 0;               /* Return reporting a success               */
 }
-#endif
 
-int main(int argc, char* argv[])
+int main(int argc, char** argv)
 {
     int ret;
+    const char* ipAddr;
     const char* library;
     const char* slot;
     const char* tokenName;
@@ -229,16 +214,17 @@ int main(int argc, char* argv[])
     int slotId;
     int devId = 1;
 
-    if (argc != 5) {
-        fprintf(stderr, "Usage: %s <libname> <slot> <tokenname> <userpin>\n",
-                argv[0]);
+    if (argc != 6) {
+        fprintf(stderr, "Usage: %s-tls-pkcs11-ecc <IPv4 address> <libname> "
+                        "<slot> <tokenname> <userpin>\n", argv[0]);
         return 1;
     }
 
-    library = argv[1];
-    slot = argv[2];
-    tokenName = argv[3];
-    userPin = argv[4];
+    ipAddr = argv[1];
+    library = argv[2];
+    slot = argv[3];
+    tokenName = argv[4];
+    userPin = argv[5];
     slotId = atoi(slot);
 
 #if defined(DEBUG_WOLFSSL)
@@ -267,7 +253,7 @@ int main(int argc, char* argv[])
             }
             if (ret == 0) {
             #if !defined(WOLFCRYPT_ONLY)
-                ret = server_tls(devId, &token);
+                ret = client_tls(devId, &token, ipAddr);
                 if (ret != 0)
                     ret = 1;
             #endif
@@ -281,4 +267,3 @@ int main(int argc, char* argv[])
 
     return ret;
 }
-

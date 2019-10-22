@@ -162,7 +162,7 @@ Change this to be the id that you set when importing the key.
 
 The example `server-tls-pkcs11-ecc` is a server that uses a private key that has been stored on the PKCS #11 device.
 
-The id of the private key is two hex bytes: `0x00, 0x01`
+The id of the private key is two hex bytes: `0x00, 0x02`
 
 Change this to be the id that you set when importing the key.
 
@@ -180,6 +180,55 @@ Change this to be the id that you set when importing the key.
 
 	From wolfssl root:
 	`./examples/client/client -A ./certs/ca-ecc-cert.pem`
+
+
+## TLS Client Example with PKCS #11 (RSA)
+
+The example `server-tls-pkcs11` is a server that uses a private key that has been stored on the PKCS #11 device.
+
+The id of the private key is two hex bytes: `0x00, 0x03`
+
+Change this to be the id that you set when importing the key.
+
+1. SoftHSM version 2
+
+	Import private key:
+	
+	`softhsm2-util --import ../certs/client-keyPkcs8.pem --slot $SOFTHSM2_SLOTID --id 0003 --label rsa2048`
+
+	Enter PIN: cryptoki
+
+2. Run server and client
+
+	From wolfssl root:
+	`./examples/server/server -A ./certs/client-cert.pem`
+
+	From wolfssl-examples/pkcs11:
+	`./client-tls-pkcs11 127.0.0.1 /usr/local/lib/softhsm/libsofthsm2.so $SOFTHSM2_SLOTID SoftToken cryptoki`
+
+## TLS Server Example with PKCS #11 (ECC)
+
+The example `server-tls-pkcs11-ecc` is a server that uses a private key that has been stored on the PKCS #11 device.
+
+The id of the private key is two hex bytes: `0x00, 0x04`
+
+Change this to be the id that you set when importing the key.
+
+1. SoftHSM version 2
+
+	Import private key:
+	
+	`softhsm2-util --import ../certs/ecc-client-key-pkcs8.pem --slot $SOFTHSM2_SLOTID --id 0004 --label ecp256`
+
+	Enter PIN: cryptoki
+
+2. Run server and client
+
+	From wolfssl root:
+	`./examples/server/server -c ./certs/server-ecc.pem -k ./certs/ecc-key.pem -A ./certs/client-ecc-cert.pem`
+
+	From wolfssl-examples/pkcs11:
+	`./client-tls-pkcs11-ecc 127.0.0.1 /usr/local/lib/softhsm/libsofthsm2.so $SOFTHSM2_SLOTID SoftToken cryptoki`
 
 
 ## Support

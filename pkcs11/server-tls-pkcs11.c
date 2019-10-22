@@ -230,8 +230,8 @@ int main(int argc, char* argv[])
     int devId = 1;
 
     if (argc != 5) {
-        fprintf(stderr,
-           "Usage: server_tls_pkcs11 <libname> <slot> <tokenname> <userpin>\n");
+        fprintf(stderr, "Usage: %s <libname> <slot> <tokenname> <userpin>\n",
+                argv[0]);
         return 1;
     }
 
@@ -253,7 +253,7 @@ int main(int argc, char* argv[])
     }
     if (ret == 0) {
         ret = wc_Pkcs11Token_Init(&token, &dev, slotId, tokenName,
-                              (byte*)userPin, strlen(userPin));
+                                  (byte*)userPin, strlen(userPin));
         if (ret != 0) {
             fprintf(stderr, "Failed to initialize PKCS#11 token\n");
             ret = 2;
